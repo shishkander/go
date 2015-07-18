@@ -4,14 +4,11 @@
 
 package sync
 
-import (
-	"sync/atomic"
-)
-
 // Once is an object that will perform exactly one action.
 type Once struct {
-	m    Mutex
-	done uint32
+	m     Mutex
+	done  byte
+	outer byte
 }
 
 // Do calls the function f if and only if Do is being called for the
@@ -33,14 +30,19 @@ type Once struct {
 // without calling f.
 //
 func (o *Once) Do(f func()) {
-	if atomic.LoadUint32(&o.done) == 1 {
+	if o.outer == 1 {
 		return
 	}
 	// Slow-path.
 	o.m.Lock()
-	defer o.m.Unlock()
+	defer func() {
+		o.m.Unlock()
+		// Here order is important, as outer must be modified only after all effects
+		// of f() are in sync with others thanks to mutex.Unlock().
+		o.outer = 1
+	}()
 	if o.done == 0 {
-		defer atomic.StoreUint32(&o.done, 1)
+		defer func() { o.done = 1 }()
 		f()
 	}
 }
