@@ -6,6 +6,7 @@ package sync_test
 
 import (
 	. "sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -65,4 +66,49 @@ func BenchmarkOnce(b *testing.B) {
 			once.Do(f)
 		}
 	})
+}
+
+const slowN = int(1)
+
+type slow struct {
+	a [slowN]byte
+}
+
+func (s *slow) write() {
+	for i := 0; i < slowN; i++ {
+		s.a[i] = 1
+	}
+}
+func (s *slow) test(t *testing.T) bool {
+	for i := slowN - 1; i >= 0; i-- {
+		b := s.a[i]
+		if b != 1 {
+			if t != nil {
+				t.Errorf("fuck up at %d %d", i, b)
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func BenchmarkOnceSlow(b *testing.B) {
+	var once Once
+	s := slow{}
+	oncef := s.write
+	ok := int32(1)
+	f := func() {
+		once.Do(oncef)
+		if !s.test(nil) {
+			atomic.StoreInt32(&ok, 0)
+		}
+	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			f()
+		}
+	})
+	if atomic.LoadInt32(&ok) == 0 {
+		b.Fatal("failed test.")
+	}
 }
